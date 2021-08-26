@@ -1,0 +1,5 @@
+1. unresolved entity collection: source entities + binary entities (limit of understand and IDA pro)
+
+2. resolve file path:
+
+already done
