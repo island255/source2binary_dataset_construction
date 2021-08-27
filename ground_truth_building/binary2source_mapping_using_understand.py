@@ -6,7 +6,8 @@ from IDA_pro_scripts import use_ida_scripts_get_function_starts_and_ends
 from mapping import binary2source_mapping
 import os
 import csv
-
+from multiprocessing import Pool
+from functools import partial
 
 # def extract_source_project_entity(understand_db):
 #     """this will generate a json file in extract_source_information\\results indicating the entity in source file"""
@@ -60,6 +61,7 @@ def extract_source2binary_function_mapping(source_dir, binary_path_list, project
     project_dir = source_dir
     binary2source_file_entity_mapping_dict = {}
     binary2source_entity_mapping_simple_dict = {}
+    binary2source_function_mapping_simple_dict = {}
     source2binary_mapping_full_dict = {}
     unresolved_binary_address_dict = {}
     file_list = os.listdir(mapping_path)
@@ -70,11 +72,13 @@ def extract_source2binary_function_mapping(source_dir, binary_path_list, project
         source2binary_mapping_full = binary2source_mapping.extract_entity_mapping(project_dir,
                                                                                   coreutils_src_path, mapping_path,
                                                                                   file_name, source_entities_info)
-        binary2source_entity_mapping_dict, binary2source_simple_mapping_dict, unresolved_binary_address = \
+        binary2source_entity_mapping_dict, binary2source_simple_mapping_dict, binary2source_function_mapping_simple, \
+        unresolved_binary_address = \
             binary2source_mapping.get_binary2source_entity_mapping(source2binary_mapping_full)
         unresolved_binary_address_dict[file_name] = unresolved_binary_address
         binary2source_file_entity_mapping_dict[file_name] = binary2source_entity_mapping_dict
         binary2source_entity_mapping_simple_dict[file_name] = binary2source_simple_mapping_dict
+        binary2source_function_mapping_simple_dict[file_name] = binary2source_function_mapping_simple
         source2binary_mapping_full_dict[file_name] = source2binary_mapping_full
     source2binary_mapping_full_file = os.path.join(project_ground_truth_dir,
                                                    "source2binary_mapping_full_understand.json")
@@ -91,7 +95,12 @@ def extract_source2binary_function_mapping(source_dir, binary_path_list, project
                                                        "unresolved_binary_address_dict.json")
     binary2source_mapping.write_json_file(unresolved_binary_address_dict_file,
                                           unresolved_binary_address_dict)
-    return binary2source_entity_mapping_simple_dict, binary2source_file_entity_mapping_dict
+
+    binary2source_function_mapping_file = os.path.join(project_ground_truth_dir,
+                                                       "binary2source_file_function_simple_mapping_understand.json")
+    binary2source_mapping.write_json_file(binary2source_function_mapping_file,
+                                          binary2source_function_mapping_simple_dict)
+    return binary2source_entity_mapping_simple_dict, binary2source_file_entity_mapping_dict, binary2source_function_mapping_simple_dict
 
 
 def get_inline_function(binary2source_entity_mapping_simple_dict):
@@ -139,13 +148,14 @@ def extract_mapping_information(python_path, source_dir, binary_path_list, under
     extract_binary_function_range(ida64_path, script_path, binary_path_list)
     extract_debug_information(python_path, binary_path_list, mapping_path_name, readelf_file_path,
                               project_ground_truth_dir)
-    binary2source_entity_mapping_simple_dict, binary2source_file_entity_mapping_dict = \
+    binary2source_entity_mapping_simple_dict, binary2source_file_entity_mapping_dict, binary2source_function_mapping_simple_dict = \
         extract_source2binary_function_mapping(source_dir, binary_path_list, project_ground_truth_dir,
                                                understand_source_entities_file, mapping_path_name)
-    inline_statistic = get_inline_function(binary2source_entity_mapping_simple_dict)
+    entity_inline_statistic = get_inline_function(binary2source_entity_mapping_simple_dict)
+    function_inline_statistic = get_inline_function(binary2source_function_mapping_simple_dict)
     source_unresolved_entity, source_unresolved_entity_detail = get_unresolved_entity(
         binary2source_file_entity_mapping_dict)
-    return inline_statistic, set(source_unresolved_entity), source_unresolved_entity_detail
+    return entity_inline_statistic, function_inline_statistic, set(source_unresolved_entity), source_unresolved_entity_detail
 
 
 def write_inline_statistics(inline_file_path, inline_statistics, compilation):
@@ -261,23 +271,23 @@ def use_understand_extract_entities(understand_tool, source_dir, understand_pyth
     status = ex.wait()
 
 
-def construct_ground_truth(understand_tool, understand_extract_script, understand_python,
-                           ground_truth_dir, compilation, compilation_pair_dict,
-                           ida64_path, script_path, readelf_file_path):
-
+def construct_ground_truth(args):
+    understand_tool, understand_extract_script, understand_python, ground_truth_dir, compilation, compilation_pair_dict,\
+    ida64_path, script_path, readelf_file_path = args
     source_dir, binary_dir_list = compilation_pair_dict["source_project_dir"], compilation_pair_dict["binary_list"]
     project_ground_truth_dir = os.path.join(ground_truth_dir, compilation)
     if os.path.exists(project_ground_truth_dir) is False:
         os.makedirs(project_ground_truth_dir)
 
-    inline_file_path = os.path.join(project_ground_truth_dir, "inline_understand.csv")
+    entity_inline_file_path = os.path.join(project_ground_truth_dir, "entity_inline_understand.csv")
+    function_inline_file_path = os.path.join(project_ground_truth_dir, "function_inline_understand.csv")
     source_unresolved_entity_file_path = os.path.join(project_ground_truth_dir,
                                                       "source_unresolved_entity_understand.csv")
     source_unresolved_entity_detail_file_path = os.path.join(project_ground_truth_dir,
                                                              "source_unresolved_entity_detail_understand.csv")
 
-    if os.path.exists(inline_file_path):
-        return
+    # if os.path.exists(inline_file_path):
+    #     return
 
     mapping_path_name = "mapping_results"
     understand_source_entities_file = os.path.join(project_ground_truth_dir, "understand_project_entities.json")
@@ -285,20 +295,23 @@ def construct_ground_truth(understand_tool, understand_extract_script, understan
     use_understand_extract_entities(understand_tool, source_dir, understand_python,
                                     understand_extract_script, understand_source_entities_file)
 
-    inline_statistics = []
+    entity_inline_statistics = []
+    function_inline_statistics = []
     source_unresolved_entity_set = set()
     source_unresolved_entity_detail_set = []
-    inline_statistic_per_opt, source_unresolved_entity, source_unresolved_entity_detail = \
+    entity_inline_statistic_per_opt, function_inline_statistic_per_opt, source_unresolved_entity, source_unresolved_entity_detail = \
         extract_mapping_information(python_path, source_dir, binary_dir_list, understand_source_entities_file,
                                     mapping_path_name,
                                     ida64_path, script_path, readelf_file_path, project_ground_truth_dir)
-    inline_statistics.append(inline_statistic_per_opt)
+    entity_inline_statistics.append(entity_inline_statistic_per_opt)
+    function_inline_statistics.append(function_inline_statistic_per_opt)
     source_unresolved_entity_set = source_unresolved_entity_set.union(source_unresolved_entity)
     source_unresolved_entity_detail_set = union_two_list(source_unresolved_entity_detail_set,
                                                          source_unresolved_entity_detail)
 
     write_source_unresolved_entity(source_unresolved_entity_file_path, source_unresolved_entity_set)
-    write_inline_statistics(inline_file_path, inline_statistics, [compilation])
+    write_inline_statistics(entity_inline_file_path, entity_inline_statistics, [compilation])
+    write_inline_statistics(function_inline_file_path, function_inline_statistics, [compilation])
 
     write_source_unresolved_entity(source_unresolved_entity_detail_file_path, source_unresolved_entity_detail_set)
 
@@ -328,11 +341,18 @@ def main():
     # dataset_per_project: source_project --> dataset_dir binary_list --> binaries
     dataset_per_project = split_dataset(binary_dataset_dir, source_dataset_dir,
                                         project_list, dataset_name)
+    arg_list = []
     for compilation in dataset_per_project:
         print("constructing ground truth for dataset: {}".format(compilation))
-        construct_ground_truth(understand_tool, understand_extract_script, understand_python,
+        arg_list.append([understand_tool, understand_extract_script, understand_python,
                                ground_truth_dir, compilation, dataset_per_project[compilation],
-                               ida64_path, script_path, readelf_file_path)
+                               ida64_path, script_path, readelf_file_path])
+        # construct_ground_truth(understand_tool, understand_extract_script, understand_python,
+        #                        ground_truth_dir, compilation, dataset_per_project[compilation],
+        #                        ida64_path, script_path, readelf_file_path)
+    with Pool(processes=48) as pool:
+        _partial_func = partial(construct_ground_truth)
+        pool.map(_partial_func, arg_list)
 
 
 if __name__ == '__main__':
