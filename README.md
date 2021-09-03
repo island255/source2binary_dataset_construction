@@ -1,6 +1,8 @@
-# source2binary_dataset_construction
+# Source2binary Dataset Construction
  
 This is the repository for the paper "One to One or One to many? What function inline brings to binary similarity analysis" submitted to ICSE 2022.
+
+## Constuction
 
 Folder "construction" shows some scripts to extract the binaries. "construction\Dockerfile_source2binary" is a Dockerfile for compiling coreutils v8.29 using clang-10 and O0-O3 options. Run "docker build -t image_owner/image_name -f Dockerfile_source2binary ." to build an image containing the source and binary of coreutils.
 
@@ -22,7 +24,18 @@ The following tables show the dataset I mentioned in the paper.
 
 The dataset containing 20 versions of 4 projects compiled in 9 compilers with 5 options can be download by link:
 https://drive.google.com/drive/folders/1p8zi7nOOHbFc81UD2TGEYc9E4IUeUyaE?usp=sharing                                                                                                              
-
 In this link, dataset_binaries.tgz contains all the binaries, dataset_sources.tgz contains all the source projects, and ground_truth.tgz contains the line level and function level labels for binary2source matching.
 
-Folder "ground_truth_building" contains the code to automatically label the above dataset. Details can refer to our paper after review.
+## Labeling
+
+Folder "ground_truth_building" contains the code to automatically label the above dataset. In detail, the code structure are listed as follows:
+
+| dir | file | function |
+| :----  | :--- | :------- |
+| IDA_pro_scripts  |  extract_binary_range.py | scripts to extract binary function boundary for IDA 7.0|
+| | extract_binary_range_75.py | scripts to extract binary function boundary for IDA 7.5|
+| extract_debug_information  |  extract_debug_dump.py | extract the line mapping from .debug_line section in binary using readelf |
+| extract_source_information | use_understand_to_extract_entity.py | use understand to extract the source line-to-function mapping. |
+| mapping | binary2source_mapping.py | extend the line-mapping with binary address-to-function mapping and source line-to-function mapping to function level mapping. |
+|-| binary2source_mapping_using_understand.py | main function to conduct labeling for all binaries and source projects. |
+| | summary_for_inline_staticstics.py | summary the metrics for all binaries. |
